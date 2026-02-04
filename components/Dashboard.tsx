@@ -149,7 +149,7 @@ const Dashboard: React.FC<DashboardProps> = ({ selectedAgentId, onSelectAgent })
             <div className="flex items-center justify-between">
               <span className="text-sm text-zinc-500">Logic Model</span>
               <span className={`text-xs font-mono truncate max-w-[150px] ${aiStatus.ready ? 'text-zinc-300' : 'text-red-500'}`}>
-                {aiStatus.ready ? (activeAgent?.id === 'eric' ? 'gemini-3-pro-preview' : 'gemini-3-flash-preview') : 'SERVICE_UNAVAILABLE'}
+                {aiStatus.ready ? (activeAgent?.id === 'eric' ? 'gemini-2.0-flash' : 'gemini-2.0-flash') : 'SERVICE_UNAVAILABLE'}
               </span>
             </div>
             <div className="flex items-center justify-between">

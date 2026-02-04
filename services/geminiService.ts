@@ -21,7 +21,7 @@ export const analyzeSystemHealth = async (metrics: any) => {
   try {
     const ai = getAI();
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-2.0-flash',
       contents: `Analyze these system metrics and provide a 1-sentence assessment: ${JSON.stringify(metrics)}`,
       config: {
         temperature: 0.7,
@@ -43,7 +43,7 @@ export const getTradingAdvice = async (marketData: string) => {
   try {
     const ai = getAI();
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-2.0-flash',
       contents: `Act as a senior quantitative trader. Based on these levels, evaluate the risk profile: ${marketData}`,
       config: {
         systemInstruction: "You are the Logic Layer of Agent Edge. Provide cold, objective, deterministic analysis.",
