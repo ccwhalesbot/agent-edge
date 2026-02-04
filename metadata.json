@@ -1,0 +1,8 @@
+{
+  "name": "Agent Edge - Mission Control",
+  "description": "A high-performance digital twin and trading execution dashboard featuring real-time telemetry, Kanban task orchestration, and automated agent monitoring in a cyber-functionalist UI.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
