@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Plus, 
@@ -20,6 +19,8 @@ import {
 } from 'lucide-react';
 import { Task, TaskStatus, TaskPriority, Agent, INITIAL_AGENTS } from '../types';
 import { cronService } from '../services/cron-service';
+import { storageAdapter } from '../utils/storage-adapter';
+import { taskSyncService } from '../services/task-sync-service';
 
 interface KanbanBoardProps {
   selectedAgentId: string | 'all';
@@ -42,38 +43,47 @@ const COLUMNS: { id: TaskStatus; label: string; dotColor: string }[] = [
 ];
 
 const KanbanBoard: React.FC<KanbanBoardProps> = ({ selectedAgentId, onSelectAgent }) => {
-  const [tasks, setTasks] = useState<Task[]>(() => {
-    const saved = localStorage.getItem('kami_tasks');
-    return saved ? JSON.parse(saved) : INITIAL_TASKS;
-  });
-
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [agents] = useState<Agent[]>(INITIAL_AGENTS);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Initialize and load tasks on component mount
   useEffect(() => {
     const initializeTasks = async () => {
       try {
+        setIsLoading(true);
+        
+        // Initialize the storage adapter
+        await storageAdapter.initializeStorage();
+        
         // Initialize the cron service to load cron jobs
         await cronService.initialize();
         
-        // Load tasks from localStorage after sync
-        const saved = localStorage.getItem('kami_tasks');
-        if (saved) {
-          setTasks(JSON.parse(saved));
-        } else {
-          setTasks(INITIAL_TASKS);
-        }
+        // Load tasks from storage adapter (Firestore with localStorage fallback)
+        const loadedTasks = await storageAdapter.getAllTasks();
+        
+        // If no tasks in storage, use initial tasks
+        const tasksToUse = loadedTasks.length > 0 ? loadedTasks : INITIAL_TASKS;
+        
+        setTasks(tasksToUse);
       } catch (error) {
         console.error('Error initializing tasks:', error);
-        // Fallback to localStorage or initial tasks
-        const saved = localStorage.getItem('kami_tasks');
-        if (saved) {
-          setTasks(JSON.parse(saved));
-        } else {
+        // Fallback to localStorage or initial tasks if storage adapter fails
+        try {
+          const saved = localStorage.getItem('kami_tasks');
+          if (saved) {
+            setTasks(JSON.parse(saved));
+          } else {
+            setTasks(INITIAL_TASKS);
+          }
+        } catch (fallbackError) {
+          console.error('Error with fallback loading:', fallbackError);
           setTasks(INITIAL_TASKS);
         }
+      } finally {
+        setIsLoading(false);
       }
     };
 
@@ -83,10 +93,8 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({ selectedAgentId, onSelectAgen
     const syncInterval = setInterval(async () => {
       try {
         await cronService.syncFromCronJobs();
-        const syncedTasks = localStorage.getItem('kami_tasks');
-        if (syncedTasks) {
-          setTasks(JSON.parse(syncedTasks));
-        }
+        const syncedTasks = await storageAdapter.getAllTasks();
+        setTasks(syncedTasks);
       } catch (error) {
         console.error('Error during periodic sync:', error);
       }
@@ -95,6 +103,27 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({ selectedAgentId, onSelectAgen
     // Clean up interval on unmount
     return () => clearInterval(syncInterval);
   }, []);
+
+  // Sync tasks to storage whenever tasks change
+  useEffect(() => {
+    const syncToStorage = async () => {
+      try {
+        await storageAdapter.saveTasks(tasks);
+      } catch (error) {
+        console.error('Error syncing tasks to storage:', error);
+        // Fallback to localStorage if storage adapter fails
+        try {
+          localStorage.setItem('kami_tasks', JSON.stringify(tasks));
+        } catch (fallbackError) {
+          console.error('Error saving to localStorage:', fallbackError);
+        }
+      }
+    };
+
+    // Debounce the sync to avoid excessive writes
+    const syncTimer = setTimeout(syncToStorage, 1000);
+    return () => clearTimeout(syncTimer);
+  }, [tasks]);
 
   // Sync tasks to Cron Manager whenever tasks change
   useEffect(() => {
@@ -139,34 +168,58 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({ selectedAgentId, onSelectAgen
     return { total, completed, inProgress, completionRate };
   }, [filteredTasks]);
 
-  const handleSaveTask = (taskData: Partial<Task>) => {
-    if (editingTask && editingTask.id) {
-      setTasks(prev => prev.map(t => t.id === editingTask.id ? { ...t, ...taskData } as Task : t));
-    } else {
-      const newTask: Task = {
-        id: crypto.randomUUID(),
-        title: taskData.title || 'Untitled Task',
-        description: taskData.description || '',
-        type: taskData.type || 'Manual',
-        status: taskData.status || 'BACKLOG',
-        priority: taskData.priority || 'MEDIUM',
-        agentId: taskData.agentId || (selectedAgentId !== 'all' ? selectedAgentId : 'kami'),
-        schedule: taskData.schedule,
-      };
-      setTasks(prev => [...prev, newTask]);
+  const handleSaveTask = async (taskData: Partial<Task>) => {
+    try {
+      if (editingTask && editingTask.id) {
+        // Update existing task
+        const updatedTasks = tasks.map(t => 
+          t.id === editingTask.id ? { ...t, ...taskData } as Task : t
+        );
+        setTasks(updatedTasks);
+      } else {
+        // Create new task
+        const newTask: Task = {
+          id: crypto.randomUUID(),
+          title: taskData.title || 'Untitled Task',
+          description: taskData.description || '',
+          type: taskData.type || 'Manual',
+          status: taskData.status || 'BACKLOG',
+          priority: taskData.priority || 'MEDIUM',
+          agentId: taskData.agentId || (selectedAgentId !== 'all' ? selectedAgentId : 'kami'),
+          schedule: taskData.schedule,
+        };
+        setTasks([...tasks, newTask]);
+      }
+      closeModal();
+    } catch (error) {
+      console.error('Error saving task:', error);
+      alert('Failed to save task. Please try again.');
     }
-    closeModal();
   };
 
-  const handleDeleteTask = (id: string) => {
+  const handleDeleteTask = async (id: string) => {
     if (confirm('Permanently delete this task?')) {
-      setTasks(prev => prev.filter(t => t.id !== id));
-      if (editingTask?.id === id) closeModal();
+      try {
+        const updatedTasks = tasks.filter(t => t.id !== id);
+        setTasks(updatedTasks);
+        if (editingTask?.id === id) closeModal();
+      } catch (error) {
+        console.error('Error deleting task:', error);
+        alert('Failed to delete task. Please try again.');
+      }
     }
   };
 
-  const moveTask = (id: string, newStatus: TaskStatus) => {
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, status: newStatus } : t));
+  const moveTask = async (id: string, newStatus: TaskStatus) => {
+    try {
+      const updatedTasks = tasks.map(t => 
+        t.id === id ? { ...t, status: newStatus } : t
+      );
+      setTasks(updatedTasks);
+    } catch (error) {
+      console.error('Error moving task:', error);
+      alert('Failed to move task. Please try again.');
+    }
   };
 
   const openModal = (task?: Task) => {
@@ -178,6 +231,17 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({ selectedAgentId, onSelectAgen
     setIsModalOpen(false);
     setEditingTask(null);
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#00FF99] mb-4"></div>
+          <p className="text-zinc-400">Loading tasks...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500 relative">
@@ -200,7 +264,7 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({ selectedAgentId, onSelectAgen
             }`}
           >
             <Filter className="w-4 h-4" />
-            <span className="text-xs font-bold uppercase">All Agents</span>
+            <span className="text-xs font-bold uppercase tracking-tighter">All Agents</span>
           </button>
           
           {agents.map(agent => (
@@ -396,7 +460,7 @@ const TaskModal = ({ task, agents, onClose, onSave, onDelete }: { task: Task | n
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-[#0D0D0D] border border-zinc-800 rounded-2xl w-full max-md overflow-hidden shadow-2xl flex flex-col">
+      <div className="bg-[#0D0D0D] border border-zinc-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col">
         <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-[#111]">
           <h3 className="text-sm font-bold text-white uppercase tracking-widest flex items-center gap-2">
             {task?.id ? 'Adjust Parameters' : 'Deploy Directive'}

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   LayoutGrid, 
@@ -27,6 +26,7 @@ import SkillsView from './components/SkillsView';
 import DocsView from './components/DocsView';
 import PeopleView from './components/PeopleView';
 import { TabType, INITIAL_AGENTS } from './types';
+import { storageAdapter } from './utils/storage-adapter';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('Eric');
@@ -39,6 +39,20 @@ const App: React.FC = () => {
     if (selectedAgentId === 'all') return null;
     return INITIAL_AGENTS.find(a => a.id === selectedAgentId);
   }, [selectedAgentId]);
+
+  // Initialize storage adapter on app startup
+  useEffect(() => {
+    const initStorage = async () => {
+      try {
+        await storageAdapter.initializeStorage();
+        console.log('Storage adapter initialized successfully');
+      } catch (error) {
+        console.error('Error initializing storage adapter:', error);
+      }
+    };
+
+    initStorage();
+  }, []);
 
   // Auto-hide sidebar on smaller screens
   useEffect(() => {

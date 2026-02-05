@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Plus, 
@@ -24,6 +23,7 @@ import {
   FileText
 } from 'lucide-react';
 import { MemoryBlock, Agent, INITIAL_AGENTS } from '../types';
+import { storageAdapter } from '../utils/storage-adapter';
 
 interface MemoryViewProps {
   selectedAgentId: string | 'all';
@@ -39,18 +39,68 @@ const INITIAL_MEMORY: MemoryBlock[] = [
 ];
 
 const MemoryView: React.FC<MemoryViewProps> = ({ selectedAgentId, onSelectAgent }) => {
-  const [memoryBlocks, setMemoryBlocks] = useState<MemoryBlock[]>(() => {
-    const saved = localStorage.getItem('kami_memory');
-    return saved ? JSON.parse(saved) : INITIAL_MEMORY;
-  });
-
+  const [memoryBlocks, setMemoryBlocks] = useState<MemoryBlock[]>([]);
   const [agents] = useState<Agent[]>(INITIAL_AGENTS);
   const [editingBlock, setEditingBlock] = useState<MemoryBlock | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    localStorage.setItem('kami_memory', JSON.stringify(memoryBlocks));
+    const initializeMemory = async () => {
+      try {
+        setIsLoading(true);
+        
+        // Load memory blocks from storage adapter (Firestore with localStorage fallback)
+        const loadedMemory = await storageAdapter.getAllMemoryBlocks();
+        
+        // If no memory blocks in storage, use initial memory
+        const memoryToUse = loadedMemory.length > 0 ? loadedMemory : INITIAL_MEMORY;
+        
+        setMemoryBlocks(memoryToUse);
+      } catch (error) {
+        console.error('Error initializing memory:', error);
+        // Fallback to localStorage or initial memory if storage adapter fails
+        try {
+          const saved = localStorage.getItem('kami_memory');
+          if (saved) {
+            setMemoryBlocks(JSON.parse(saved));
+          } else {
+            setMemoryBlocks(INITIAL_MEMORY);
+          }
+        } catch (fallbackError) {
+          console.error('Error with fallback loading:', fallbackError);
+          setMemoryBlocks(INITIAL_MEMORY);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initializeMemory();
+  }, []);
+
+  // Sync memory blocks to storage whenever they change
+  useEffect(() => {
+    const syncToStorage = async () => {
+      try {
+        await storageAdapter.saveMemoryBlocks(memoryBlocks);
+      } catch (error) {
+        console.error('Error syncing memory blocks to storage:', error);
+        // Fallback to localStorage if storage adapter fails
+        try {
+          localStorage.setItem('kami_memory', JSON.stringify(memoryBlocks));
+        } catch (fallbackError) {
+          console.error('Error saving to localStorage:', fallbackError);
+        }
+      }
+    };
+
+    // Debounce the sync to avoid excessive writes
+    if (memoryBlocks.length > 0) {
+      const syncTimer = setTimeout(syncToStorage, 1000);
+      return () => clearTimeout(syncTimer);
+    }
   }, [memoryBlocks]);
 
   const filteredMemory = useMemo(() => {
@@ -58,35 +108,64 @@ const MemoryView: React.FC<MemoryViewProps> = ({ selectedAgentId, onSelectAgent 
     return memoryBlocks.filter(m => m.agentId === selectedAgentId);
   }, [memoryBlocks, selectedAgentId]);
 
-  const handleSaveMemory = (content: string) => {
+  const handleSaveMemory = async (content: string) => {
     if (!editingBlock) return;
-    setMemoryBlocks(prev => prev.map(m => 
-      m.id === editingBlock.id 
-        ? { ...m, content, lastUpdated: new Date().toISOString().split('T')[0] } 
-        : m
-    ));
-    setIsEditorOpen(false);
-    setEditingBlock(null);
-  };
-
-  const handleCreateMemory = (data: Partial<MemoryBlock>) => {
-    const newBlock: MemoryBlock = {
-      id: crypto.randomUUID(),
-      agentId: data.agentId || (selectedAgentId !== 'all' ? selectedAgentId : 'kami'),
-      fileName: data.fileName || 'UNTITLED.md',
-      type: data.type || 'CORE',
-      lastUpdated: new Date().toISOString().split('T')[0],
-      content: data.content || `# ${data.fileName}\nInitialized context payload.`
-    };
-    setMemoryBlocks(prev => [...prev, newBlock]);
-    setIsCreateModalOpen(false);
-  };
-
-  const removeBlock = (id: string) => {
-    if (confirm('Erase this memory segment permanently?')) {
-      setMemoryBlocks(prev => prev.filter(m => m.id !== id));
+    
+    try {
+      const updatedBlocks = memoryBlocks.map(m => 
+        m.id === editingBlock.id 
+          ? { ...m, content, lastUpdated: new Date().toISOString().split('T')[0] } 
+          : m
+      );
+      setMemoryBlocks(updatedBlocks);
+      setIsEditorOpen(false);
+      setEditingBlock(null);
+    } catch (error) {
+      console.error('Error saving memory block:', error);
+      alert('Failed to save memory block. Please try again.');
     }
   };
+
+  const handleCreateMemory = async (data: Partial<MemoryBlock>) => {
+    try {
+      const newBlock: MemoryBlock = {
+        id: crypto.randomUUID(),
+        agentId: data.agentId || (selectedAgentId !== 'all' ? selectedAgentId : 'kami'),
+        fileName: data.fileName || 'UNTITLED.md',
+        type: data.type || 'CORE',
+        lastUpdated: new Date().toISOString().split('T')[0],
+        content: data.content || `# ${data.fileName}\nInitialized context payload.`
+      };
+      setMemoryBlocks(prev => [...prev, newBlock]);
+      setIsCreateModalOpen(false);
+    } catch (error) {
+      console.error('Error creating memory block:', error);
+      alert('Failed to create memory block. Please try again.');
+    }
+  };
+
+  const removeBlock = async (id: string) => {
+    if (confirm('Erase this memory segment permanently?')) {
+      try {
+        const updatedBlocks = memoryBlocks.filter(m => m.id !== id);
+        setMemoryBlocks(updatedBlocks);
+      } catch (error) {
+        console.error('Error removing memory block:', error);
+        alert('Failed to remove memory block. Please try again.');
+      }
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#00FF99] mb-4"></div>
+          <p className="text-zinc-400">Loading memory blocks...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">

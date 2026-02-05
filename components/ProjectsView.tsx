@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Plus, 
@@ -19,6 +18,7 @@ import {
   Settings
 } from 'lucide-react';
 import { Project, Agent, INITIAL_AGENTS } from '../types';
+import { storageAdapter } from '../utils/storage-adapter';
 
 interface ProjectsViewProps {
   selectedAgentId: string | 'all';
@@ -32,17 +32,67 @@ const INITIAL_PROJECTS: Project[] = [
 ];
 
 const ProjectsView: React.FC<ProjectsViewProps> = ({ selectedAgentId, onSelectAgent }) => {
-  const [projects, setProjects] = useState<Project[]>(() => {
-    const saved = localStorage.getItem('kami_projects');
-    return saved ? JSON.parse(saved) : INITIAL_PROJECTS;
-  });
-
+  const [projects, setProjects] = useState<Project[]>([]);
   const [agents] = useState<Agent[]>(INITIAL_AGENTS);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    localStorage.setItem('kami_projects', JSON.stringify(projects));
+    const initializeProjects = async () => {
+      try {
+        setIsLoading(true);
+        
+        // Load projects from storage adapter (Firestore with localStorage fallback)
+        const loadedProjects = await storageAdapter.getAllProjects();
+        
+        // If no projects in storage, use initial projects
+        const projectsToUse = loadedProjects.length > 0 ? loadedProjects : INITIAL_PROJECTS;
+        
+        setProjects(projectsToUse);
+      } catch (error) {
+        console.error('Error initializing projects:', error);
+        // Fallback to localStorage or initial projects if storage adapter fails
+        try {
+          const saved = localStorage.getItem('kami_projects');
+          if (saved) {
+            setProjects(JSON.parse(saved));
+          } else {
+            setProjects(INITIAL_PROJECTS);
+          }
+        } catch (fallbackError) {
+          console.error('Error with fallback loading:', fallbackError);
+          setProjects(INITIAL_PROJECTS);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initializeProjects();
+  }, []);
+
+  // Sync projects to storage whenever they change
+  useEffect(() => {
+    const syncToStorage = async () => {
+      try {
+        await storageAdapter.saveProjects(projects);
+      } catch (error) {
+        console.error('Error syncing projects to storage:', error);
+        // Fallback to localStorage if storage adapter fails
+        try {
+          localStorage.setItem('kami_projects', JSON.stringify(projects));
+        } catch (fallbackError) {
+          console.error('Error saving to localStorage:', fallbackError);
+        }
+      }
+    };
+
+    // Debounce the sync to avoid excessive writes
+    if (projects.length > 0) {
+      const syncTimer = setTimeout(syncToStorage, 1000);
+      return () => clearTimeout(syncTimer);
+    }
   }, [projects]);
 
   const filteredProjects = useMemo(() => {
@@ -50,26 +100,42 @@ const ProjectsView: React.FC<ProjectsViewProps> = ({ selectedAgentId, onSelectAg
     return projects.filter(p => p.agentId === selectedAgentId);
   }, [projects, selectedAgentId]);
 
-  const handleSaveProject = (projectData: Partial<Project>) => {
-    if (editingProject && editingProject.id) {
-      setProjects(prev => prev.map(p => p.id === editingProject.id ? { ...p, ...projectData } as Project : p));
-    } else {
-      const newProject: Project = {
-        id: crypto.randomUUID(),
-        title: projectData.title || 'New Project',
-        description: projectData.description || '',
-        agentId: projectData.agentId || (selectedAgentId !== 'all' ? selectedAgentId : 'kami'),
-        link: projectData.link || '#',
-        status: projectData.status || 'active',
-      };
-      setProjects(prev => [...prev, newProject]);
+  const handleSaveProject = async (projectData: Partial<Project>) => {
+    try {
+      if (editingProject && editingProject.id) {
+        // Update existing project
+        const updatedProjects = projects.map(p => 
+          p.id === editingProject.id ? { ...p, ...projectData } as Project : p
+        );
+        setProjects(updatedProjects);
+      } else {
+        // Create new project
+        const newProject: Project = {
+          id: crypto.randomUUID(),
+          title: projectData.title || 'New Project',
+          description: projectData.description || '',
+          agentId: projectData.agentId || (selectedAgentId !== 'all' ? selectedAgentId : 'kami'),
+          link: projectData.link || '#',
+          status: projectData.status || 'active',
+        };
+        setProjects([...projects, newProject]);
+      }
+      closeModal();
+    } catch (error) {
+      console.error('Error saving project:', error);
+      alert('Failed to save project. Please try again.');
     }
-    closeModal();
   };
 
-  const handleDeleteProject = (id: string) => {
+  const handleDeleteProject = async (id: string) => {
     if (confirm('Permanently decommission this project?')) {
-      setProjects(prev => prev.filter(p => p.id !== id));
+      try {
+        const updatedProjects = projects.filter(p => p.id !== id);
+        setProjects(updatedProjects);
+      } catch (error) {
+        console.error('Error deleting project:', error);
+        alert('Failed to delete project. Please try again.');
+      }
     }
   };
 
@@ -82,6 +148,17 @@ const ProjectsView: React.FC<ProjectsViewProps> = ({ selectedAgentId, onSelectAg
     setIsModalOpen(false);
     setEditingProject(null);
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#00FF99] mb-4"></div>
+          <p className="text-zinc-400">Loading projects...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">

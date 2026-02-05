@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Plus, 
@@ -22,6 +21,7 @@ import {
   Code
 } from 'lucide-react';
 import { Skill, Agent, INITIAL_AGENTS } from '../types';
+import { storageAdapter } from '../utils/storage-adapter';
 
 interface SkillsViewProps {
   selectedAgentId: string | 'all';
@@ -36,17 +36,67 @@ const INITIAL_SKILLS: Skill[] = [
 ];
 
 const SkillsView: React.FC<SkillsViewProps> = ({ selectedAgentId, onSelectAgent }) => {
-  const [skills, setSkills] = useState<Skill[]>(() => {
-    const saved = localStorage.getItem('kami_skills');
-    return saved ? JSON.parse(saved) : INITIAL_SKILLS;
-  });
-
+  const [skills, setSkills] = useState<Skill[]>([]);
   const [agents] = useState<Agent[]>(INITIAL_AGENTS);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    localStorage.setItem('kami_skills', JSON.stringify(skills));
+    const initializeSkills = async () => {
+      try {
+        setIsLoading(true);
+        
+        // Load skills from storage adapter (Firestore with localStorage fallback)
+        const loadedSkills = await storageAdapter.getAllSkills();
+        
+        // If no skills in storage, use initial skills
+        const skillsToUse = loadedSkills.length > 0 ? loadedSkills : INITIAL_SKILLS;
+        
+        setSkills(skillsToUse);
+      } catch (error) {
+        console.error('Error initializing skills:', error);
+        // Fallback to localStorage or initial skills if storage adapter fails
+        try {
+          const saved = localStorage.getItem('kami_skills');
+          if (saved) {
+            setSkills(JSON.parse(saved));
+          } else {
+            setSkills(INITIAL_SKILLS);
+          }
+        } catch (fallbackError) {
+          console.error('Error with fallback loading:', fallbackError);
+          setSkills(INITIAL_SKILLS);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initializeSkills();
+  }, []);
+
+  // Sync skills to storage whenever they change
+  useEffect(() => {
+    const syncToStorage = async () => {
+      try {
+        await storageAdapter.saveSkills(skills);
+      } catch (error) {
+        console.error('Error syncing skills to storage:', error);
+        // Fallback to localStorage if storage adapter fails
+        try {
+          localStorage.setItem('kami_skills', JSON.stringify(skills));
+        } catch (fallbackError) {
+          console.error('Error saving to localStorage:', fallbackError);
+        }
+      }
+    };
+
+    // Debounce the sync to avoid excessive writes
+    if (skills.length > 0) {
+      const syncTimer = setTimeout(syncToStorage, 1000);
+      return () => clearTimeout(syncTimer);
+    }
   }, [skills]);
 
   const filteredSkills = useMemo(() => {
@@ -54,33 +104,55 @@ const SkillsView: React.FC<SkillsViewProps> = ({ selectedAgentId, onSelectAgent 
     return skills.filter(s => s.agentId === selectedAgentId);
   }, [skills, selectedAgentId]);
 
-  const handleToggleSkill = (id: string) => {
-    setSkills(prev => prev.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s));
+  const handleToggleSkill = async (id: string) => {
+    try {
+      const updatedSkills = skills.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s);
+      setSkills(updatedSkills);
+    } catch (error) {
+      console.error('Error toggling skill:', error);
+      alert('Failed to toggle skill. Please try again.');
+    }
   };
 
-  const handleDeleteSkill = (id: string) => {
+  const handleDeleteSkill = async (id: string) => {
     if (confirm('De-register this capability from the agent?')) {
-      setSkills(prev => prev.filter(s => s.id !== id));
+      try {
+        const updatedSkills = skills.filter(s => s.id !== id);
+        setSkills(updatedSkills);
+      } catch (error) {
+        console.error('Error deleting skill:', error);
+        alert('Failed to delete skill. Please try again.');
+      }
     }
   };
 
-  const handleSaveSkill = (skillData: Partial<Skill>) => {
-    if (editingSkill && editingSkill.id) {
-      setSkills(prev => prev.map(s => s.id === editingSkill.id ? { ...s, ...skillData } as Skill : s));
-    } else {
-      const newSkill: Skill = {
-        id: crypto.randomUUID(),
-        agentId: skillData.agentId || (selectedAgentId !== 'all' ? selectedAgentId : 'kami'),
-        name: skillData.name || 'New Skill',
-        description: skillData.description || '',
-        enabled: true,
-        category: skillData.category || 'Utility',
-        apiKey: skillData.apiKey,
-        env: skillData.env,
-      };
-      setSkills(prev => [...prev, newSkill]);
+  const handleSaveSkill = async (skillData: Partial<Skill>) => {
+    try {
+      if (editingSkill && editingSkill.id) {
+        // Update existing skill
+        const updatedSkills = skills.map(s => 
+          s.id === editingSkill.id ? { ...s, ...skillData } as Skill : s
+        );
+        setSkills(updatedSkills);
+      } else {
+        // Create new skill
+        const newSkill: Skill = {
+          id: crypto.randomUUID(),
+          agentId: skillData.agentId || (selectedAgentId !== 'all' ? selectedAgentId : 'kami'),
+          name: skillData.name || 'New Skill',
+          description: skillData.description || '',
+          enabled: true,
+          category: skillData.category || 'Utility',
+          apiKey: skillData.apiKey,
+          env: skillData.env,
+        };
+        setSkills([...skills, newSkill]);
+      }
+      closeModal();
+    } catch (error) {
+      console.error('Error saving skill:', error);
+      alert('Failed to save skill. Please try again.');
     }
-    closeModal();
   };
 
   const openModal = (skill?: Skill) => {
@@ -92,6 +164,17 @@ const SkillsView: React.FC<SkillsViewProps> = ({ selectedAgentId, onSelectAgent 
     setIsModalOpen(false);
     setEditingSkill(null);
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#00FF99] mb-4"></div>
+          <p className="text-zinc-400">Loading skills...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
