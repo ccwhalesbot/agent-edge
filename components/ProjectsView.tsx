@@ -18,7 +18,7 @@ import {
   Settings
 } from 'lucide-react';
 import { Project, Agent, INITIAL_AGENTS } from '../types';
-import { storageAdapter } from '../utils/storage-adapter';
+import { storageAdapter } from '../src/utils/storage-adapter';
 
 interface ProjectsViewProps {
   selectedAgentId: string | 'all';

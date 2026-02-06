@@ -18,12 +18,12 @@ import {
 
 // Firebase configuration - using free tier
 const firebaseConfig = {
-  apiKey: "AIzaSyDCZzDQ64jf_hgi02uGvzO84bue24Jc7II",
-  authDomain: "agent-edge-7d4d1.firebaseapp.com",
-  projectId: "agent-edge-7d4d1",
-  storageBucket: "agent-edge-7d4d1.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:123456789:web:abc123def456"
+  apiKey: "AIzaSyDJ_C8hE0c3iuyFXh-VCK3oW9HMPwwWWk8",
+  authDomain: "agent-edge-5d078.firebaseapp.com",
+  projectId: "agent-edge-5d078",
+  storageBucket: "agent-edge-5d078.firebasestorage.app",
+  messagingSenderId: "239884745688",
+  appId: "1:239884745688:web:dea8553bb989803c6b10ad"
 };
 
 // Initialize Firebase

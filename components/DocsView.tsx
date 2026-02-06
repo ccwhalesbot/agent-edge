@@ -426,9 +426,57 @@ const DocUploadModal = ({ onClose, onSave, agents, initialAgentId }: { onClose: 
             />
           </div>
 
-          <div className="p-4 bg-zinc-950/50 border border-dashed border-zinc-800 rounded-2xl flex flex-col items-center justify-center gap-2 group cursor-pointer hover:border-[#00FF99]/40 transition-all">
+          <div 
+            onClick={() => document.getElementById('doc-upload-input')?.click()}
+            className="p-4 bg-zinc-950/50 border border-dashed border-zinc-800 rounded-2xl flex flex-col items-center justify-center gap-2 group cursor-pointer hover:border-[#00FF99]/40 transition-all"
+          >
+             <input 
+               id="doc-upload-input"
+               type="file" 
+               className="hidden" 
+               onChange={async (e) => {
+                 const file = e.target.files?.[0];
+                 if (!file) return;
+                 
+                 const formData = new FormData();
+                 formData.append('file', file);
+                 
+                 try {
+                   // Show loading state if we had one, for now just alert
+                   const btn = e.target as HTMLInputElement;
+                   if (btn.parentElement) btn.parentElement.style.opacity = '0.5';
+                   
+                   const res = await fetch('http://localhost:5001/api/documents/upload', {
+                     method: 'POST',
+                     body: formData
+                   });
+                   
+                   if (!res.ok) throw new Error('Upload failed');
+                   
+                   const data = await res.json();
+                   setFormData(f => ({ 
+                     ...f, 
+                     title: f.title || file.name,
+                     fileUrl: data.file_path, // Store local path for now, in real app this would be a URL
+                     fileType: data.file_type as any
+                   }));
+                   
+                   if (btn.parentElement) {
+                      btn.parentElement.style.opacity = '1';
+                      btn.parentElement.style.borderColor = '#00FF99';
+                   }
+                   alert('File uploaded successfully!');
+                 } catch (err) {
+                   console.error(err);
+                   alert('Failed to upload file');
+                   if (btn.parentElement) btn.parentElement.style.opacity = '1';
+                 }
+               }}
+             />
              <Upload className="w-6 h-6 text-zinc-700 group-hover:text-[#00FF99] transition-all" />
-             <span className="text-[10px] font-bold text-zinc-700 uppercase tracking-widest">Select Source File</span>
+             <span className="text-[10px] font-bold text-zinc-700 uppercase tracking-widest">
+               {formData.fileUrl && formData.fileUrl !== '#' ? 'File Uploaded (Click to Replace)' : 'Select Source File'}
+             </span>
           </div>
         </div>
 

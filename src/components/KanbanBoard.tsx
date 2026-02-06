@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { Task, TaskStatus, TaskPriority, Agent, INITIAL_AGENTS } from '../types';
 import { cronService } from '../services/cron-service';
-import { storageAdapter } from '../utils/storage-adapter';
+import { storageAdapter } from '../src/utils/storage-adapter';
 import { taskSyncService } from '../services/task-sync-service';
 
 interface KanbanBoardProps {

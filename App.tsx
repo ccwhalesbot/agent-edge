@@ -26,7 +26,7 @@ import SkillsView from './components/SkillsView';
 import DocsView from './components/DocsView';
 import PeopleView from './components/PeopleView';
 import { TabType, INITIAL_AGENTS } from './types';
-import { storageAdapter } from './utils/storage-adapter';
+import { storageAdapter } from './src/utils/storage-adapter';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('Eric');

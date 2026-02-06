@@ -23,7 +23,7 @@ import {
   FileText
 } from 'lucide-react';
 import { MemoryBlock, Agent, INITIAL_AGENTS } from '../types';
-import { storageAdapter } from '../utils/storage-adapter';
+import { storageAdapter } from '../src/utils/storage-adapter';
 
 interface MemoryViewProps {
   selectedAgentId: string | 'all';

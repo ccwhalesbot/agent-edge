@@ -21,7 +21,7 @@ import {
   Code
 } from 'lucide-react';
 import { Skill, Agent, INITIAL_AGENTS } from '../types';
-import { storageAdapter } from '../utils/storage-adapter';
+import { storageAdapter } from '../src/utils/storage-adapter';
 
 interface SkillsViewProps {
   selectedAgentId: string | 'all';
